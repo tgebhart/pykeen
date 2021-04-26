@@ -7,7 +7,7 @@ import itertools
 import logging
 import os
 import re
-from typing import Any, Callable, Collection, Dict, List, Mapping, Optional, Sequence, Set, TextIO, Union
+from typing import Any, Callable, Collection, Dict, List, Mapping, Optional, Sequence, Set, TextIO, Type, Union
 
 import numpy as np
 import pandas as pd
@@ -355,11 +355,15 @@ class CoreTriplesFactory:
 
     def create_slcwa_instances(self) -> Instances:
         """Create sLCWA instances for this factory's triples."""
-        return SLCWAInstances(mapped_triples=self._add_inverse_triples_if_necessary(mapped_triples=self.mapped_triples))
+        return self._create_instances(SLCWAInstances)
 
-    def create_lcwa_instances(self, use_tqdm: Optional[bool] = None) -> Instances:
+    def create_lcwa_instances(self) -> Instances:
         """Create LCWA instances for this factory's triples."""
-        return LCWAInstances.from_triples(
+        return self._create_instances(LCWAInstances)
+
+    def _create_instances(self, instance_cls: Type[Instances]) -> Instances:
+        """Create instances with the given factory."""
+        return instance_cls.from_triples(
             mapped_triples=self._add_inverse_triples_if_necessary(mapped_triples=self.mapped_triples),
             num_entities=self.num_entities,
         )

@@ -31,6 +31,21 @@ class Instances(data.Dataset):
         """The number of instances."""
         raise NotImplementedError
 
+    @classmethod
+    def from_triples(cls, mapped_triples: MappedTriples, num_entities: int) -> 'Instances':
+        """
+        Create unimodal instances from triples.
+
+        :param mapped_triples: shape: (num_triples, 3)
+            The ID-based triples.
+        :param num_entities:
+            The number of entities.
+
+        :return:
+            The instances.
+        """
+        raise NotImplementedError
+
 
 @fix_dataclass_init_docs
 @dataclass
@@ -39,6 +54,10 @@ class SLCWAInstances(Instances):
 
     #: The mapped triples, shape: (num_triples, 3)
     mapped_triples: MappedTriples
+
+    @classmethod
+    def from_triples(cls, mapped_triples: MappedTriples, num_entities: int) -> Instances:  # noqa:D102
+        return cls(mapped_triples=mapped_triples)
 
     def __len__(self):  # noqa: D105
         return self.mapped_triples.shape[0]
