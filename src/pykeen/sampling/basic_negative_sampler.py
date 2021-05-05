@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """Negative sampling algorithm based on the work of of Bordes *et al.*."""
-
+import math
 from typing import Any, Collection, Mapping, Optional, Tuple
 
 import torch
@@ -9,7 +9,7 @@ from class_resolver import HintOrType
 
 from .filtering import Filterer
 from .negative_sampler import NegativeSampler
-from ..triples import TriplesFactory
+from ..triples import CoreTriplesFactory
 
 __all__ = [
     'BasicNegativeSampler',
@@ -45,7 +45,7 @@ class BasicNegativeSampler(NegativeSampler):
 
     def __init__(
         self,
-        triples_factory: TriplesFactory,
+        triples_factory: CoreTriplesFactory,
         num_negs_per_pos: Optional[int] = None,
         filtered: bool = False,
         filterer: HintOrType[Filterer] = None,
@@ -85,7 +85,7 @@ class BasicNegativeSampler(NegativeSampler):
         num_negs = positive_batch.shape[0]
 
         # Equally corrupt all sides
-        split_idx = num_negs // len(self._corruption_indices)
+        split_idx = int(math.ceil(num_negs / len(self._corruption_indices)))
 
         # Copy positive batch for corruption.
         # Do not detach, as no gradients should flow into the indices.
