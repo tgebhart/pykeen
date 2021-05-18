@@ -3,16 +3,18 @@
 """Schlichtkrull Sampler Class."""
 
 import logging
-from typing import List, Optional, Tuple
+import random
+from typing import Iterable, List, Optional, Tuple
 
 import torch
 from torch.utils.data.sampler import Sampler
 
-from ..triples import CoreTriplesFactory
+from ..triples import TriplesFactory
+from torch_geometric.data import NeighborSampler
 
 
 def _compute_compressed_adjacency_list(
-    triples_factory: CoreTriplesFactory,
+    triples_factory: TriplesFactory,
 ) -> Tuple[torch.LongTensor, torch.LongTensor, torch.LongTensor]:
     """Compute compressed undirected adjacency list representation for efficient sampling.
 
@@ -43,6 +45,18 @@ def _compute_compressed_adjacency_list(
     compressed_adj_lists = torch.cat([torch.as_tensor(adj_list, dtype=torch.long) for adj_list in adj_lists], dim=0)
     return degrees, offset, compressed_adj_lists
 
+def _normalize_num_samples(num_samples, triples_factory):
+    if num_samples is None:
+        num_samples = triples_factory.num_triples // 10
+        logging.info(f'Did not specify number of samples. Using {num_samples}.')
+    elif num_samples > triples_factory.num_triples:
+        raise ValueError(
+            'num_samples cannot be larger than the number of triples, but '
+            f'{num_samples} > {triples_factory.num_triples}.',
+        )
+    if not isinstance(num_samples, int) or num_samples <= 0:
+        raise ValueError(f"num_samples should be a positive integer value, but got num_samples={num_samples}")
+    return num_samples
 
 class GraphSampler(Sampler):
     r"""Samples edges based on the proposed method in Schlichtkrull et al.
@@ -54,7 +68,7 @@ class GraphSampler(Sampler):
 
     def __init__(
         self,
-        triples_factory: CoreTriplesFactory,
+        triples_factory: TriplesFactory,
         num_samples: Optional[int] = None,
     ):
         mapped_triples = triples_factory.mapped_triples
@@ -135,3 +149,91 @@ class GraphSampler(Sampler):
 
     def __len__(self):  # noqa: D105
         return self.num_batches_per_epoch
+
+
+class NeighborhoodGraphSampler(Sampler):
+    """A simple neighborhood graph sampler."""
+
+    def __init__(
+        self,
+        triples_factory: TriplesFactory,
+        num_samples: Optional[int] = None,
+    ):
+        mapped_triples = triples_factory.mapped_triples
+        super().__init__(data_source=mapped_triples)
+        self.triples_factory = triples_factory
+        self.num_samples = _normalize_num_samples(num_samples=num_samples, triples_factory=triples_factory)
+        self.num_batches_per_epoch = triples_factory.num_triples // self.num_samples
+
+    def _iterator(self) -> Iterable[torch.LongTensor]:
+        triples = self.triples_factory.mapped_triples
+        for _ in range(self.num_batches_per_epoch):
+            # create node mask
+            seen = torch.zeros(self.triples_factory.num_entities, dtype=torch.bool)
+            # create triple mask
+            triple_mask = torch.zeros(triples.shape[0], dtype=torch.bool)
+            old_triple_sum = 0
+            while True:
+                seen_pairs = triples[triple_mask][:, [0, 2]]
+                seen[seen_pairs.view(-1)] = True
+                triple_mask = seen[triples[:, [0, 2]]].any(dim=-1)
+                triple_sum = triple_mask.sum()
+                if triple_sum >= self.num_samples:
+                    break
+                elif triple_sum == old_triple_sum:
+                    # randomly select seed
+                    triple_mask[random.randrange(triples.shape[0])] = True
+                old_triple_sum = triple_sum
+            idx, = triple_mask.nonzero(as_tuple=True)
+            idx = idx[torch.randperm(idx.shape[0])[:self.num_samples]]
+            for ii in idx:
+                yield ii
+
+    def __iter__(self):  # noqa: D105
+        return self._iterator()
+
+    def __len__(self):  # noqa: D105
+        return self.num_batches_per_epoch
+
+
+class GeometricNeighborhoodSampler(Sampler):
+    """Neighborhood sampler based on Pytorch Geometric's NeighborhoodSampler."""
+
+    def __init__(
+        self,
+        triples_factory: TriplesFactory,
+        num_samples: Optional[int] = None,
+        layer_sizes = [1,1,1,1,1,1],
+        num_workers = 2
+    ):
+        mapped_triples = triples_factory.mapped_triples
+        self.num_samples = _normalize_num_samples(num_samples=num_samples, triples_factory=triples_factory)
+        super().__init__(data_source=mapped_triples)
+        self.triples_factory = triples_factory
+
+        unique_hr, self.pair_idx_to_triple_idx = torch.unique(mapped_triples[:,:2], return_inverse=True, dim=0)
+        edge_index = torch.empty((2,unique_hr.shape[0]), dtype=torch.int64)
+        edge_index[0,:] = unique_hr[:,0]
+        edge_index[1,:] = unique_hr[:,1]
+        # else:
+        #     edge_index = torch.empty((2,mapped_triples.shape[0]), dtype=torch.int64)
+        #     edge_index[0,:] = mapped_triples[:,0]
+        #     edge_index[1,:] = mapped_triples[:,2]
+
+        train_idx = torch.unique(edge_index.flatten())
+        # https://docs.dgl.ai/en/0.4.x/tutorials/models/5_giant_graph/1_sampling_mx.html
+        self.train_loader = NeighborSampler(edge_index, node_idx=train_idx,
+                                   sizes=layer_sizes, batch_size=self.num_samples,
+                                   shuffle=True, num_workers=num_workers)
+
+    def _iterator(self) -> Iterable[torch.LongTensor]:
+        for batch_size, n_id, adjs in self.train_loader:
+            for j, (eix, e_id, size) in enumerate(adjs):
+                for e in e_id:
+                    yield e
+
+    def __iter__(self):  # noqa: D105
+        return self._iterator()
+
+    def __len__(self):  # noqa: D105
+        return len(self.train_loader)

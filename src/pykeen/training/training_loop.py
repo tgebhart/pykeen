@@ -27,7 +27,7 @@ from ..losses import Loss, has_mr_loss, has_nssa_loss
 from ..models import Model, RGCN
 from ..stoppers import Stopper
 from ..trackers import ResultTracker
-from ..training.schlichtkrull_sampler import GraphSampler
+from ..training.schlichtkrull_sampler import GraphSampler, NeighborhoodGraphSampler, GeometricNeighborhoodSampler
 from ..triples import CoreTriplesFactory, Instances
 from ..utils import (
     format_relative_comparison, get_batchnorm_modules, is_cuda_oom_error, is_cudnn_error,
@@ -527,7 +527,18 @@ class TrainingLoop(Generic[SampleType, BatchType], ABC):
         if sampler == 'schlichtkrull':
             if triples_factory is None:
                 raise ValueError('need to pass triples_factory when using graph sampling')
-            sampler = GraphSampler(triples_factory, num_samples=sub_batch_size)
+            sampler = GraphSampler(self.triples_factory, num_samples=sub_batch_size)
+            shuffle = False
+        if sampler == 'neighborhood':
+            if triples_factory is None:
+                raise ValueError('need to pass triples_factory when using graph sampling')
+            sampler = NeighborhoodGraphSampler(self.triples_factory, num_samples=sub_batch_size)
+            shuffle = False
+        if sampler == 'geometric':
+            if triples_factory is None:
+                raise ValueError('need to pass triples_factory when using graph sampling')
+            sampler = GeometricNeighborhoodSampler(self.triples_factory, num_samples=sub_batch_size)
+            # collate_fn = geometric_collate
             shuffle = False
         else:
             sampler = None
