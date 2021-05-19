@@ -527,12 +527,12 @@ class TrainingLoop(Generic[SampleType, BatchType], ABC):
         if sampler == 'schlichtkrull':
             if triples_factory is None:
                 raise ValueError('need to pass triples_factory when using graph sampling')
-            sampler = GraphSampler(self.triples_factory, num_samples=sub_batch_size)
+            sampler = GraphSampler(triples_factory, num_samples=sub_batch_size)
             shuffle = False
         if sampler == 'neighborhood':
             if triples_factory is None:
                 raise ValueError('need to pass triples_factory when using graph sampling')
-            sampler = NeighborhoodGraphSampler(self.triples_factory, num_samples=sub_batch_size)
+            sampler = NeighborhoodGraphSampler(triples_factory, num_samples=sub_batch_size)
             shuffle = False
         else:
             sampler = None
